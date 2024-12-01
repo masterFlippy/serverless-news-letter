@@ -4,10 +4,16 @@ import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { Runtime } from "aws-cdk-lib/aws-lambda";
 import path = require("path");
 import { LambdaInvoke } from "aws-cdk-lib/aws-stepfunctions-tasks";
-import { Choice, Condition, StateMachine } from "aws-cdk-lib/aws-stepfunctions";
+import {
+  Choice,
+  Condition,
+  Fail,
+  StateMachine,
+} from "aws-cdk-lib/aws-stepfunctions";
 import { Rule, Schedule } from "aws-cdk-lib/aws-events";
 import { SfnStateMachine } from "aws-cdk-lib/aws-events-targets";
 import { AttributeType, Table } from "aws-cdk-lib/aws-dynamodb";
+import { Topic } from "aws-cdk-lib/aws-sns";
 
 export class ServerlessNewsLetterStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -17,9 +23,14 @@ export class ServerlessNewsLetterStack extends cdk.Stack {
       partitionKey: { name: "id", type: AttributeType.STRING },
     });
 
+    const snsTopic = new Topic(this, "MyTopic", {
+      displayName: "SNS Topic",
+    });
+
     const newsScraperLambda = new NodejsFunction(this, "newsScraperLambda", {
       runtime: Runtime.NODEJS_18_X,
       handler: "index.handler",
+      timeout: cdk.Duration.minutes(1),
       entry: path.join(__dirname, `/../lambdas/newsScraperLambda/index.ts`),
       environment: {
         ARTICLE_TABLE_NAME: articleTable.tableName,
@@ -29,42 +40,36 @@ export class ServerlessNewsLetterStack extends cdk.Stack {
     const newsAnalyzerLambda = new NodejsFunction(this, "newsAnalyzerLambda", {
       runtime: Runtime.NODEJS_18_X,
       handler: "index.handler",
+      timeout: cdk.Duration.minutes(1),
       entry: path.join(__dirname, `/../lambdas/newsAnalyzerLambda/index.ts`),
       environment: {
         ARTICLE_TABLE_NAME: articleTable.tableName,
       },
     });
 
-    const newsSummarizerLambda = new NodejsFunction(
+    const sendNewsletterLambda = new NodejsFunction(
       this,
-      "newsSummarizerLambda",
+      "sendNewsletterLambda",
       {
         runtime: Runtime.NODEJS_18_X,
         handler: "index.handler",
+        timeout: cdk.Duration.minutes(1),
         entry: path.join(
           __dirname,
-          `/../lambdas/newsSummarizerLambda/index.ts`
+          `/../lambdas/sendNewsletterLambda/index.ts`
         ),
         environment: {
           ARTICLE_TABLE_NAME: articleTable.tableName,
+          TOPIC_ARN: snsTopic.topicArn,
         },
       }
     );
-
-    const newsCleanUpLambda = new NodejsFunction(this, "newsCleanUpLambda", {
-      runtime: Runtime.NODEJS_18_X,
-      handler: "index.handler",
-      entry: path.join(__dirname, `/../lambdas/newsCleanUpLambda/index.ts`),
-      environment: {
-        ARTICLE_TABLE_NAME: articleTable.tableName,
-      },
-    });
+    snsTopic.grantPublish(sendNewsletterLambda);
 
     for (const lambda of [
       newsScraperLambda,
       newsAnalyzerLambda,
-      newsSummarizerLambda,
-      newsCleanUpLambda,
+      sendNewsletterLambda,
     ]) {
       articleTable.grantReadWriteData(lambda);
     }
@@ -85,34 +90,29 @@ export class ServerlessNewsLetterStack extends cdk.Stack {
       }
     );
 
-    const newsSummarizerLambdaTask = new LambdaInvoke(
+    const sendNewsletterLambdaTask = new LambdaInvoke(
       this,
-      "Invoke newsSummarizerLambda",
+      "Invoke sendNewsletterLambda",
       {
-        lambdaFunction: newsSummarizerLambda,
-      }
-    );
-
-    const newsCleanUpLambdaTask = new LambdaInvoke(
-      this,
-      "Invoke newsCleanUpLambda",
-      {
-        lambdaFunction: newsCleanUpLambda,
+        lambdaFunction: sendNewsletterLambda,
       }
     );
 
     const choiceState = new Choice(this, "Choice State");
 
-    const definition = newsScraperLambdaTask
-      .next(newsAnalyzerLambdaTask)
-      .next(
-        choiceState
-          .when(
-            Condition.booleanEquals("$.choiceCondition", true),
-            newsSummarizerLambdaTask.next(newsCleanUpLambdaTask)
-          )
-          .otherwise(newsCleanUpLambdaTask)
-      );
+    const definition = newsScraperLambdaTask.next(newsAnalyzerLambdaTask).next(
+      choiceState
+        .when(
+          Condition.booleanEquals("$.Payload.shouldSendEmail", true),
+          sendNewsletterLambdaTask
+        )
+        .otherwise(
+          new Fail(this, "EndState", {
+            error: "NoEmailConditionMet",
+            cause: "The condition to send email was not met",
+          })
+        )
+    );
 
     const stateMachine = new StateMachine(
       this,

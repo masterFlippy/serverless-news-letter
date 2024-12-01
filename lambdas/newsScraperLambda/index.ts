@@ -1,22 +1,51 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { parseStringPromise } from "xml2js";
+import { v4 as uuid } from "uuid";
+import { Article } from "../../types";
+import { insertArticles } from "../../util/dynamo";
 
-const region = process.env.AWS_REGION || "";
+const region = process.env.AWS_REGION || "eu-north-1";
 const dynamo = new DynamoDBClient({ region });
 const articleTableName: string = process.env.ARTICLE_TABLE_NAME || "";
 
 export async function handler(event: any) {
   try {
-    console.log("event", event);
-    const tempArray = ["1", "2", "3", "4", "5"];
+    const rssUrl = "https://feeds.bbci.co.uk/news/world/rss.xml";
 
-    //Scrape news
+    const response = await fetch(rssUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch RSS feed: ${response.statusText}`);
+    }
 
-    //Preparation for batch write to DynamoDB
+    const rssXml = await response.text();
+    const rssJson = await parseStringPromise(rssXml);
+    const items = rssJson.rss.channel[0].item;
+    const articles: Article[] = items
+      .filter(
+        (item: any) =>
+          new Date(item.pubDate[0]).setHours(0, 0, 0, 0) ===
+          new Date().setHours(0, 0, 0, 0)
+      )
+      .map(
+        (item: {
+          title: any[];
+          description: any[];
+          link: any[];
+          pubDate: any[];
+        }) => ({
+          id: uuid(),
+          title: item.title[0],
+          text: item.description[0],
+          url: item.link[0],
+          timestamp: new Date(item.pubDate[0]).getTime(),
+        })
+      );
 
-    // Batch write to DynamoDB
+    await insertArticles(articles, dynamo, articleTableName);
+
     return {
       status: "success",
-      ids: tempArray,
+      ids: articles.map((article) => article.id),
       processedAt: new Date().toISOString(),
     };
   } catch (error) {
