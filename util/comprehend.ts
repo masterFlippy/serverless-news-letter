@@ -1,36 +1,40 @@
 import {
-  BatchDetectSentimentCommand,
+  BatchDetectKeyPhrasesCommand,
   ComprehendClient,
   LanguageCode,
 } from "@aws-sdk/client-comprehend";
 import { Article } from "../types";
 
-export async function getSentiment(
+export async function getKeyPhrases(
   client: ComprehendClient,
   articles: Article[]
 ): Promise<Article[]> {
   try {
-    const happyArticles: Article[] = [];
+    const keyPhrasedArticles: Article[] = [];
     const params = {
       TextList: articles.map((article) => article.text) as string[],
       LanguageCode: LanguageCode.EN,
     };
 
-    const command = new BatchDetectSentimentCommand(params);
+    const command = new BatchDetectKeyPhrasesCommand(params);
     const result = await client.send(command);
 
     if (result.ResultList) {
-      for (const [index, sentiment] of result.ResultList.entries()) {
+      for (const [index, phrases] of result.ResultList.entries()) {
         const article = articles[index];
-        article.mood = sentiment.Sentiment === "POSITIVE" ? "happy" : undefined;
-        if (article.mood === "happy") {
-          happyArticles.push(article);
+        if (phrases.KeyPhrases) {
+          keyPhrasedArticles.push({
+            ...article,
+            keyPhrases: phrases.KeyPhrases.map((phrase) => phrase.Text).join(
+              ", "
+            ),
+          });
         }
       }
     }
-    return happyArticles;
+    return keyPhrasedArticles;
   } catch (error) {
-    console.error("Error analyzing sentiment:", error);
-    throw new Error("Failed to analyze sentiment");
+    console.error("Error getting key phrases:", error);
+    throw new Error("Failed to get key phrases");
   }
 }

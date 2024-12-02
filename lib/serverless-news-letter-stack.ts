@@ -7,13 +7,14 @@ import { LambdaInvoke } from "aws-cdk-lib/aws-stepfunctions-tasks";
 import {
   Choice,
   Condition,
-  Fail,
+  Pass,
   StateMachine,
 } from "aws-cdk-lib/aws-stepfunctions";
 import { Rule, Schedule } from "aws-cdk-lib/aws-events";
 import { SfnStateMachine } from "aws-cdk-lib/aws-events-targets";
 import { AttributeType, Table } from "aws-cdk-lib/aws-dynamodb";
-import { Topic } from "aws-cdk-lib/aws-sns";
+import { PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 
 export class ServerlessNewsLetterStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -23,8 +24,8 @@ export class ServerlessNewsLetterStack extends cdk.Stack {
       partitionKey: { name: "id", type: AttributeType.STRING },
     });
 
-    const snsTopic = new Topic(this, "MyTopic", {
-      displayName: "SNS Topic",
+    const openaiSecret = new Secret(this, "openaiSecret", {
+      secretName: "openaiSecret",
     });
 
     const newsScraperLambda = new NodejsFunction(this, "newsScraperLambda", {
@@ -46,6 +47,14 @@ export class ServerlessNewsLetterStack extends cdk.Stack {
         ARTICLE_TABLE_NAME: articleTable.tableName,
       },
     });
+    openaiSecret.grantRead(newsAnalyzerLambda);
+
+    newsAnalyzerLambda.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["comprehend:BatchDetectKeyPhrases"],
+        resources: ["*"],
+      })
+    );
 
     const sendNewsletterLambda = new NodejsFunction(
       this,
@@ -60,11 +69,15 @@ export class ServerlessNewsLetterStack extends cdk.Stack {
         ),
         environment: {
           ARTICLE_TABLE_NAME: articleTable.tableName,
-          TOPIC_ARN: snsTopic.topicArn,
         },
       }
     );
-    snsTopic.grantPublish(sendNewsletterLambda);
+    sendNewsletterLambda.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["ses:SendEmail", "ses:SendRawEmail"],
+        resources: ["*"],
+      })
+    );
 
     for (const lambda of [
       newsScraperLambda,
@@ -100,19 +113,16 @@ export class ServerlessNewsLetterStack extends cdk.Stack {
 
     const choiceState = new Choice(this, "Choice State");
 
-    const definition = newsScraperLambdaTask.next(newsAnalyzerLambdaTask).next(
-      choiceState
-        .when(
-          Condition.booleanEquals("$.Payload.shouldSendEmail", true),
-          sendNewsletterLambdaTask
-        )
-        .otherwise(
-          new Fail(this, "EndState", {
-            error: "NoEmailConditionMet",
-            cause: "The condition to send email was not met",
-          })
-        )
-    );
+    const definition = newsScraperLambdaTask
+      .next(newsAnalyzerLambdaTask)
+      .next(
+        choiceState
+          .when(
+            Condition.booleanEquals("$.Payload.shouldSendEmail", true),
+            sendNewsletterLambdaTask
+          )
+          .otherwise(new Pass(this, "NoEmailState", {}))
+      );
 
     const stateMachine = new StateMachine(
       this,
@@ -126,8 +136,8 @@ export class ServerlessNewsLetterStack extends cdk.Stack {
       new cdk.aws_iam.ServicePrincipal("events.amazonaws.com")
     );
 
-    new Rule(this, "HourlyTrigger", {
-      schedule: Schedule.cron({ minute: "0" }),
+    new Rule(this, "DailyTrigger", {
+      schedule: Schedule.cron({ minute: "0", hour: "16" }),
       targets: [new SfnStateMachine(stateMachine)],
     });
   }

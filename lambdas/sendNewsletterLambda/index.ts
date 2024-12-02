@@ -1,8 +1,7 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { SESClient } from "@aws-sdk/client-ses";
 import { getArticles } from "../../util/dynamo";
-import { sendEmail } from "../../util/sns";
-import { SNSClient } from "@aws-sdk/client-sns";
+import { sendEmail } from "../../util/ses";
 
 interface Event {
   Payload: {
@@ -14,8 +13,7 @@ interface Event {
 
 const region = process.env.AWS_REGION || "";
 const dynamo = new DynamoDBClient({ region });
-const sns = new SNSClient({ region });
-const snsTopic = process.env.TOPIC_ARN || "";
+const ses = new SESClient({ region });
 const articleTableName: string = process.env.ARTICLE_TABLE_NAME || "";
 
 export async function handler(event: Event) {
@@ -26,7 +24,7 @@ export async function handler(event: Event) {
       articleTableName
     );
 
-    await sendEmail(sns, articles, snsTopic);
+    await sendEmail(ses, articles);
 
     return {
       status: "success",

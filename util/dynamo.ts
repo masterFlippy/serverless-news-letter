@@ -77,7 +77,7 @@ export async function getArticles(
   let articles: Article[] = [];
   const chunks = chunkArray(articleIds, 100);
   for (const chunk of chunks()) {
-    const keys = chunk.map((id) => marshall({ PrimaryKey: id }));
+    const keys = chunk.map((id) => marshall({ id }));
     const params = {
       RequestItems: {
         [articleTableName]: {

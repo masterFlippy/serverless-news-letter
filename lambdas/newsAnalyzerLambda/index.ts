@@ -1,7 +1,10 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { deleteArticles, getArticles } from "../../util/dynamo";
+import { getArticles, insertArticles } from "../../util/dynamo";
 import { ComprehendClient } from "@aws-sdk/client-comprehend";
-import { getSentiment } from "../../util/comprehend";
+import OpenAI from "openai";
+import { summarizeArticles } from "../../util/scraper";
+import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
+import { getSecret } from "../../util/secretsmanager";
 
 interface Event {
   Payload: {
@@ -13,7 +16,8 @@ interface Event {
 
 const region = process.env.AWS_REGION || "";
 const dynamo = new DynamoDBClient({ region });
-const comprehend = new ComprehendClient({ region });
+const secretsManager = new SecretsManagerClient({ region });
+const comprehend = new ComprehendClient({ region: "eu-west-1" });
 
 const articleTableName: string = process.env.ARTICLE_TABLE_NAME || "";
 
@@ -24,22 +28,20 @@ export async function handler(event: Event) {
       dynamo,
       articleTableName
     );
-    const happyArticles = await getSentiment(comprehend, articles);
+    const openai = new OpenAI({
+      apiKey: await getSecret(secretsManager, "openaiSecret"),
+    });
 
-    const articleIds = happyArticles.map((article) => article.id);
-    const happyArticleIds = happyArticles.map((article) => article.id);
-    const happyArticleIdsSet = new Set(happyArticleIds);
-
-    const sadArticleIds: string[] = articleIds.filter(
-      (id) => !happyArticleIdsSet.has(id)
+    const summarizedArticles = await summarizeArticles(
+      comprehend,
+      openai,
+      articles
     );
-
-    await deleteArticles(sadArticleIds, dynamo, articleTableName);
-
+    await insertArticles(summarizedArticles, dynamo, articleTableName);
     return {
       status: "success",
-      ids: happyArticleIds,
-      ShouldSendEmail: happyArticleIds.length > 0,
+      ids: summarizedArticles.map((article) => article.id),
+      shouldSendEmail: summarizedArticles.length > 0,
       processedAt: new Date().toISOString(),
     };
   } catch (error) {
