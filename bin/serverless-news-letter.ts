@@ -5,5 +5,5 @@ import { ServerlessNewsLetterStack } from "../lib/serverless-news-letter-stack";
 
 const app = new cdk.App();
 new ServerlessNewsLetterStack(app, "ServerlessNewsLetterStack", {
-  env: { account: "864981749661", region: "eu-north-1" },
+  env: { account: "dev", region: "eu-north-1" },
 });
