@@ -24,12 +24,12 @@ export class ServerlessNewsLetterStack extends cdk.Stack {
       partitionKey: { name: "id", type: AttributeType.STRING },
     });
 
-    const openaiSecret = new Secret(this, "openaiSecret", {
-      secretName: "openaiSecret",
+    const newsletterSecret = new Secret(this, "newsletter-config", {
+      secretName: "newsletter-config",
     });
 
     const newsScraperLambda = new NodejsFunction(this, "newsScraperLambda", {
-      runtime: Runtime.NODEJS_18_X,
+      runtime: Runtime.NODEJS_LATEST,
       handler: "index.handler",
       timeout: cdk.Duration.minutes(1),
       entry: path.join(__dirname, `/../lambdas/newsScraperLambda/index.ts`),
@@ -37,9 +37,10 @@ export class ServerlessNewsLetterStack extends cdk.Stack {
         ARTICLE_TABLE_NAME: articleTable.tableName,
       },
     });
+    newsletterSecret.grantRead(newsScraperLambda);
 
     const newsAnalyzerLambda = new NodejsFunction(this, "newsAnalyzerLambda", {
-      runtime: Runtime.NODEJS_18_X,
+      runtime: Runtime.NODEJS_LATEST,
       handler: "index.handler",
       timeout: cdk.Duration.minutes(1),
       entry: path.join(__dirname, `/../lambdas/newsAnalyzerLambda/index.ts`),
@@ -47,7 +48,7 @@ export class ServerlessNewsLetterStack extends cdk.Stack {
         ARTICLE_TABLE_NAME: articleTable.tableName,
       },
     });
-    openaiSecret.grantRead(newsAnalyzerLambda);
+    newsletterSecret.grantRead(newsAnalyzerLambda);
 
     newsAnalyzerLambda.addToRolePolicy(
       new PolicyStatement({
@@ -60,7 +61,7 @@ export class ServerlessNewsLetterStack extends cdk.Stack {
       this,
       "sendNewsletterLambda",
       {
-        runtime: Runtime.NODEJS_18_X,
+        runtime: Runtime.NODEJS_LATEST,
         handler: "index.handler",
         timeout: cdk.Duration.minutes(1),
         entry: path.join(

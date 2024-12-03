@@ -8,3 +8,8 @@ export type Article = {
   summary?: string;
   timestamp: number;
 };
+
+export type Secret = {
+  apiKey: string;
+  url: string;
+};

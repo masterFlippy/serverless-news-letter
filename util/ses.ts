@@ -48,7 +48,6 @@ function generateHTML(articles: Article[]) {
   return `
     <html>
       <body>
-        <h1>Latest Articles</h1>
         ${articleHtml}
       </body>
     </html>

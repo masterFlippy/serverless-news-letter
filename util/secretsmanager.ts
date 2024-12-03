@@ -2,11 +2,12 @@ import {
   GetSecretValueCommand,
   SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
+import { Secret } from "../types";
 
 export async function getSecret(
   client: SecretsManagerClient,
   secretName: string
-): Promise<string> {
+): Promise<Secret> {
   try {
     const command = new GetSecretValueCommand({
       SecretId: secretName,
@@ -14,7 +15,7 @@ export async function getSecret(
     const response = await client.send(command);
 
     if (response.SecretString) {
-      return response.SecretString;
+      return JSON.parse(response.SecretString) satisfies Secret;
     } else {
       throw new Error("Secret not found");
     }

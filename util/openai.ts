@@ -14,7 +14,7 @@ export async function getSummary(
       {
         role: "system",
         content:
-          "You are helpful assistant with the sole purpose of creating a summary from key phrases. You will create a summary for the following key phrases and only return the summary.",
+          "You are helpful assistant with the sole purpose of creating a summary for a news article with around 50 words based on a number of key phrases. You will create a summary for the following key phrases and only return the summary.",
       },
       {
         role: "user",

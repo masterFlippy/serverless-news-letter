@@ -3,16 +3,19 @@ import { parseStringPromise } from "xml2js";
 import { v4 as uuid } from "uuid";
 import { Article } from "../../types";
 import { insertArticles } from "../../util/dynamo";
+import { getSecret } from "../../util/secretsmanager";
+import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 
 const region = process.env.AWS_REGION || "eu-north-1";
 const dynamo = new DynamoDBClient({ region });
 const articleTableName: string = process.env.ARTICLE_TABLE_NAME || "";
+const secretsManager = new SecretsManagerClient({ region });
 
 export async function handler(event: any) {
   try {
-    const rssUrl = "https://feeds.bbci.co.uk/news/world/rss.xml";
+    const secret = await getSecret(secretsManager, "newsletter-config");
 
-    const response = await fetch(rssUrl);
+    const response = await fetch(secret.url);
     if (!response.ok) {
       throw new Error(`Failed to fetch RSS feed: ${response.statusText}`);
     }

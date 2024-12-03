@@ -18,7 +18,6 @@ const region = process.env.AWS_REGION || "";
 const dynamo = new DynamoDBClient({ region });
 const secretsManager = new SecretsManagerClient({ region });
 const comprehend = new ComprehendClient({ region: "eu-west-1" });
-
 const articleTableName: string = process.env.ARTICLE_TABLE_NAME || "";
 
 export async function handler(event: Event) {
@@ -28,8 +27,9 @@ export async function handler(event: Event) {
       dynamo,
       articleTableName
     );
+    const secret = await getSecret(secretsManager, "newsletter-config");
     const openai = new OpenAI({
-      apiKey: await getSecret(secretsManager, "openaiSecret"),
+      apiKey: secret.apiKey,
     });
 
     const summarizedArticles = await summarizeArticles(
